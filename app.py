@@ -406,7 +406,8 @@ tabs = st.tabs([
     "Cobranza (CEI)",
     "Costos",
     "Alertas",
-    "Plan 90 días"
+    "Plan 90 días",
+    "Resumen ejecutivo"
 ])
 
 # -----------------------------
@@ -743,3 +744,91 @@ with tabs[6]:
         implicacion="Si el roll rate hacia 30+ se mantiene alto, la cartera tenderá a deteriorarse aunque la cobranza sea reactiva.",
         accion="Medir y optimizar prevención + curas tempranas; ajustar oferta y canal de contacto por cohorte/bucket."
     )
+
+# -----------------------------
+# TAB 8: Resumen Ejecutivo
+# -----------------------------
+with tabs[7]:
+    st.markdown("### Resumen ejecutivo del corte")
+
+    snap = df[df["PlanoMes"] == selected_month]
+    k = portfolio_kpis(snap)
+
+    # Señal líder: roll rate corriente -> 30-59
+    rr_text = "No disponible"
+    rr_risk = False
+    if len(available_months) >= 2:
+        m_prev = available_months[-2]
+        m_now = available_months[-1]
+        mat_last = roll_rate_matrix(df, m_prev, m_now)
+        if not mat_last.empty and "Corriente" in mat_last.index and "30-59" in mat_last.columns:
+            rr_val = float(mat_last.loc["Corriente", "30-59"])
+            rr_text = f"{rr_val:.1f}%"
+            rr_risk = (rr_val / 100.0) >= thr_roll_c_to_30
+
+    # Cohorte más riesgosa
+    ck = cohort_kpis(df, selected_month)
+    worst_cohort = None
+    if not ck.empty:
+        worst_cohort = ck.sort_values("PAR30", ascending=False).iloc[0]
+
+    # Mensajes clave
+    msg_npl = (
+        f"El NPL (saldo) del corte es {pct01(k['NPL saldo'])}, "
+        f"con un PAR30 de {pct01(k['PAR30'])}."
+    )
+
+    msg_bucket = (
+        "La mayor concentración de saldo se encuentra en el bucket "
+        f"{snap.groupby('Bucket')['Saldo'].sum().idxmax()}."
+        if not snap.empty else "No se identificó un bucket dominante."
+    )
+
+    msg_roll = (
+        f"El roll rate Corriente → 30-59 es {rr_text}, "
+        f"{'por encima' if rr_risk else 'dentro'} del umbral del perfil '{thr_pack}'."
+        if rr_text != "No disponible"
+        else "No se dispone de roll rate entre los últimos cortes."
+    )
+
+    msg_cohort = (
+        f"La cohorte más riesgosa del corte es {worst_cohort['Cohorte']} "
+        f"(PAR30 = {pct01(worst_cohort['PAR30'])})."
+        if worst_cohort is not None else
+        "No se pudo identificar una cohorte dominante en riesgo."
+    )
+
+    # Presentación ejecutiva
+    st.markdown(
+        f"""
+<div class="etd-card">
+<b>Situación actual</b><br>
+• {msg_npl}<br>
+• {msg_bucket}<br><br>
+
+<b>Señales de alerta</b><br>
+• {msg_roll}<br>
+• {msg_cohort}<br><br>
+
+<b>Lectura ejecutiva</b><br>
+La cartera muestra señales de {'deterioro temprano' if rr_risk else 'estabilidad relativa'}.
+El riesgo principal se concentra en mora temprana y en cohortes específicas,
+lo que permite intervenir antes de que la mora escale a 60+ o 90+.
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+    insight_box(
+        hallazgo="Los indicadores líderes (roll rate y PAR30) permiten anticipar el deterioro antes de que impacte PAR60/PAR90.",
+        implicacion="Sin intervención temprana, la mora tenderá a consolidarse y elevar los costos de recuperación.",
+        accion="Focalizar recursos en prevención y curas tempranas, priorizar cohortes con peor desempeño y monitorear semanalmente la migración."
+    )
+
+    st.markdown("### Recomendaciones prioritarias (próximo trimestre)")
+    st.markdown("""
+1. **Prevención intensiva** en Corriente y 2-29 (recordatorios y contacto temprano).
+2. **Curar 30-59** con acuerdos cortos y priorización por saldo.
+3. **Seguimiento semanal** de roll rates como KPI líder.
+4. **Escalamiento selectivo** para 60+ con criterio de retorno económico.
+""")
